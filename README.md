@@ -30,6 +30,8 @@ WSB is an online forum where retail investors discuss high-leverage options trad
 ---
 
 ## 3. Model Performance Report
+### Baseline Approach Description
+We established a zero-shot baseline using **Llama-3.3-70b** queried via the Groq API. We passed a structured prompt containing our label definitions and instructed the model to output a strict JSON format containing the predicted label and a one-sentence reasoning note. Results were collected programmatically using rate-limit delay sleeps (2.2 seconds) to respect API quotas.
 
 ### Overall Accuracy
 *   **Zero-Shot Baseline (Llama-3.3-70b):** **`86.2%`** (0.862)
@@ -56,7 +58,13 @@ Due Diligence       0.86      0.86      0.86         7
 
      accuracy                           0.81        32
 ```
-
+#### Confusion Matrix (DistilBERT)
+```
+Actual \ Predicted   Discussion    Due Diligence    YOLO
+Discussion               19              0            0
+Due Diligence             1              6            0
+YOLO                      4              1            1
+```
 ---
 
 ## 4. Error Analysis and Model Limitations
@@ -65,19 +73,17 @@ Due Diligence       0.86      0.86      0.86         7
 The confusion matrix reveals that the fine-tuned DistilBERT model heavily misclassified **YOLO** posts as **Discussion**. 
 
 This occurs due to a failure to internalize subcultural slang and behavioral intent:
-*   **Example 1 (Subcultural Slang):**
-    *   *Text:* `"Title: A little 48 hour day trade (take 2) \nBody: I full-port bought Intel due to it being the cheapest of the chip giant stocks, the next day it got a price target increase by Bank of America and I set a sell target for a number I felt was reasonable. This AI/ chip rally has been great for my account!"`
-    *   *Analysis:* Human annotators easily recognize the phrase **"full port"** (putting 100% of a portfolio into one trade) as an explicit signal for a YOLO post. However, the smaller capacity of DistilBERT failed to weigh this specific subcultural slang appropriately, absorbing it into general Discussion.
-*   **Example 2 (Intent vs. Semantics):**
-    *   *Text:* `"Title: 50k into SPY puts because macro indicators are blinking red \nBody: Unemployment ticked up by 0.2% and consumer credit defaults are accelerating. Looking at the weekly chart, we are severely overextended above the 200 EMA. Going all in on June expiration contracts."`
-    *   *Analysis:* The content contains objective data points (`"Unemployment ticked up"`, `"200 EMA"`), which are strong semantic markers for Due Diligence. However, the true intent of the post is to showcase a massive, high-risk options gamble (`"50k into SPY puts"`, `"all in"`). The model was swayed by the financial terminology and misclassified it as Discussion.
-
+*   **Example 1**
+    *   *Text:* `"Title: Is this a diversified portfolio? \nBody: 485k on AVGO LFG!!!!! 🚀 🌙"` (True: YOLO | Predicted: Discussion, confidence `0.71`).
+*   **Analysis:** Started the title of the post with a question, shows that the post intent is for discussion. However, the body of the post shows that it is a YOLO of someone gambling 485k into a single stock which made the initial question a satirical rather than an actual question.
+*   **Example 2**
+    *   *Text:* `"Title: Just hit £500k - ALL IN ON HUT 8 \nBody: Short background on my investing journey Started investing June 2020 with £15k..."` (True: YOLO | Predicted: Due Diligence, confidence `0.45`).
+*   **Analysis:** Incorrectly classifying a post with due diligence due to the length and background information. However, the author investment strategy surrounded around gambling based on the title, they are putting 500k into a single stock. Despite the wealth of information, the true intent is high risk bet on a single position.
 ### 2. Due Diligence Misclassified as Discussion (The Brevity Bias)
 Concise analysis posts were sometimes misclassified as Discussion because the model associated shorter text lengths with casual chat.
-*   **Example 3:**
-    *   *Text:* `"Title: Quick catalyst for NVDA next week \nBody: Keep an eye out for the supply chain data releasing on Tuesday from Taiwan. If TSMC shipments are up, NVDA clears guidance easily."`
-    *   *True Label:* Due Diligence | *Predicted Label:* Discussion
-    *   *Analysis:* This post contains research about Taiwan supply chain data and Taiwan Semiconductor Manufacturing Company (TSMC) shipments to forecast NVIDIA (NVDA) guidance. Because it was short and did not seek feedback, it represents a concise Due Diligence post. The model's reliance on post length as a proxy for category caused it to classify it as Discussion.
+*   **Example 3**
+    *   *Text:* `"Title: Over 100% USO (US Oil Etf) Shares Sold Short. Yolo MCL (Wti Micro) Long for $96 k \nBody: 19.6 million of 14.5 million USO shares sold short. Traders are short another 140 million..."` (True: Due Diligence | Predicted: Discussion, confidence `0.39`).
+*   **Analysis:** Due diligence posts that are brief and mention slang words like `"Yolo"` in the title confuse the model, causing it to drop them to Discussion with low confidence.
 
 ### Systematic Error Pattern Analysis
 Across the entire test set, there is a systematic error pattern where **options position-flex posts (YOLO) containing conversational style or questions are incorrectly predicted as Discussion**. 
@@ -132,3 +138,29 @@ The dataset includes challenging cases that the taxonomy guidelines successfully
 
 *   **Guidance from Spec:** The spec requirement to collect at least 200 posts forced us to think about data preservation. When we encountered 106 empty-body posts, deleting them would have left us with 134 posts, violating the $\ge 200$ minimum. The spec guided us to build an **Empty Body Enrichment** pipeline (describing images and formatting links) to preserve the full 210-row dataset.
 *   **Divergence from Spec:** The spec assumed default hyperparameters would suffice for model training. However, the model initially collapsed into guessing "Discussion" for all inputs due to vocabulary overlap. We diverged from the spec by disabling the learning rate warmup, increasing the learning rate to `5e-5`, and increasing epochs to 5 to force the model to learn a real decision boundary.
+
+## 10. Label and other information found in planning.md, added here for to fit guidelines.
+
+Link to video: https://drive.google.com/file/d/1cmY-YxkzF0S5QVrpwsTCCZ_OGz3jlphz/view?usp=sharing
+
+### Taxonomy Definitions
+*   **Due Diligence (DD):** Posts presenting structured research, fundamental/technical analysis, or mechanical market catalysts (e.g., float metrics, index inclusion, tariffs, lockups) to argue a specific investment thesis. Satirical or superstitious arguments are excluded.
+    *   *Example Post 1:* *“Bullish thesis for SPCX into the summer”* by **Fun_Paleontologist_2** (CRSP/Vanguard index tracking timelines and option gamma feedback loops).
+    *   *Example Post 2:* *“1M+ bet on T1 Energy (TE) PT 2”* by **Beneficial-Ad-7771** (Section 232 solar tariffs, domestic cell production capacity, and data center energy demands).
+*   **YOLO:** Posts focused on showcasing high-risk options trades, massive active bets, or significant realized/unrealized gains/losses (often with screenshots of account balances) with minimal analytical backing.
+    *   *Example Post 1:* *“100k SPY 6/16 744c YOLO held through iran deal / Trump's birthday weekend”* by **DesktopSurfer** (A $109k options bet made on a whim, celebrating luck).
+    *   *Example Post 2:* *“5k-66k in 3 days. Life finds a way”* by **lococommotion** (A profit-flexing post bragging about 10x-ing an account through rapid 0DTE scalping with no strategy).
+*   **Discussion:** Casual questions, news links, memes, jokes, or community banter. Satirical DD posts and title-only links are classified as Discussion.
+    *   *Example Post 1:* *“Attractive women are starting to approach me. God help us all.”* by **Papa_Hoch** (Humorous community story about a bar interaction and SpaceX allocation screenshot).
+    *   *Example Post 2:* *“Why Adobe?”* by **TenkaiRyo** (Simple two-sentence question asking why Adobe is struggling compared to other subscription businesses).
+
+    ### Sample Classifications (DistilBERT)
+The following table shows predictions generated by the fine-tuned DistilBERT model on representative test samples:
+
+| Post Text | Predicted Label | Confidence Score | True Label | Prediction Analysis |
+| :--- | :---: | :---: | :---: | :--- |
+| `"Title: DD: We Are Not in a Dot-Com Bubble Because the Knicks Just Beat the Spurs \nBody: [Image: Humorous community meme...]"` | **Discussion** | 0.94 | Discussion | **Correct.** The body text explicitly notes it is a humorous meme connecting a basketball game to a market anomaly, signifying satire. |
+| `"Title: Bullish thesis for SPCX into the summer \nBody: Detailed breakdown of CRSP/Vanguard index tracking timelines, option gamma feedback loops, and lockup periods."` | **Due Diligence** | 0.89 | Due Diligence | **Correct.** The model successfully identified highly analytical terms ("gamma feedback loops", "lockup periods") as indicators of stock research. |
+| `"Title: Quick catalyst for NVDA next week \nBody: Keep an eye out for the supply chain data releasing on Tuesday from Taiwan. If TSMC shipments are up, NVDA clears guidance easily."` | **Discussion** | 0.72 | Due Diligence | **Incorrect.** The extreme brevity of the post caused the model to classify it as Discussion, overriding the analytical topic keywords. |
+| `"Title: A little 48 hour day trade (take 2) \nBody: I full-port bought Intel due to it being the cheapest of the chip giant stocks..."` | **Discussion** | 0.68 | YOLO | **Incorrect.** The model failed to capture the subcultural slang "full-port" as a risk-taking signal, categorizing it as general chat. |
+
